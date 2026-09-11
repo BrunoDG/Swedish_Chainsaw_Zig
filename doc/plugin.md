@@ -49,6 +49,32 @@ flowchart TD
 `activate()` re-inits the pedal with the host sample rate and replays any
 parameter values set before activation.
 
+## Ableton Live via VST3 bridge (clap-wrapper)
+
+Live doesn't scan CLAPs, so the official **clap-wrapper** builds a VST3 shim
+that loads our `.clap` at runtime (it searches the standard CLAP folders by
+the wrapper's name):
+
+```sh
+cmake -B wrapper/build -S lib/clap-wrapper -G "MinGW Makefiles" \
+    -DCMAKE_BUILD_TYPE=Release -DCMAKE_MAKE_PROGRAM=mingw32-make \
+    -DCLAP_WRAPPER_DOWNLOAD_DEPENDENCIES=TRUE \
+    -DCLAP_WRAPPER_OUTPUT_NAME=hm2_chainsaw
+cmake --build wrapper/build -j8
+```
+
+- Output: `wrapper/build/Release/hm2_chainsaw.vst3/` (bundle folder).
+- MinGW names the inner binary `libhm2_chainsaw.vst3` — rename it to
+  `hm2_chainsaw.vst3` so hosts match it to the bundle.
+- Install (per-user, no admin): CLAP → `%LOCALAPPDATA%\Programs\Common\CLAP\`,
+  VST3 bundle → `%LOCALAPPDATA%\Programs\Common\VST3\`. Machine-wide install
+  into `C:\Program Files\Common Files\{CLAP,VST3}` needs elevation.
+- The wrapper exports the standard VST3 entry points (`GetPluginFactory`,
+  `InitDll`, `ExitDll`) — verified in the export table.
+
+Ableton then scans the per-user VST3 folder; the GUI comes through the
+wrapper's VST3 `IPlugView` ↔ our `clap.gui` bridging.
+
 ## GUI (`clap.gui` extension, `src/plugin_gui.zig`)
 
 The plugin implements the `clap.gui` extension with the **Win32** API
@@ -80,6 +106,30 @@ The plugin implements the `clap.gui` extension with the **Win32** API
 
 Validated at compile level + the full mini-host test suite. Runtime check
 inside a real DAW is the remaining manual step.
+
+## Testing without a DAW: the mini-host (`src/clap_testhost.zig`)
+
+```sh
+zig build testhost
+```
+
+A complete host in ~300 lines that exercises the **real plugin boundary**:
+
+1. `LoadLibraryW` the `.clap` → `GetProcAddress("clap_entry")` → factory →
+   `create_plugin` (with a minimal `clap_host`).
+2. Creates a Win32 window, calls `gui.create/set_parent/show` to embed the
+   plugin's GDI GUI; the main thread runs the message pump.
+3. miniaudio playback device (48 kHz, 256-frame chunks) generates a
+   220 Hz "guitar" sine (fundamental + 2 harmonics) and calls
+   `plugin.process()` on the audio thread — exactly the threading split a
+   real host uses (GUI main thread / DSP audio thread).
+4. Dragging the knobs publishes to the atomics; `syncParamsFromAtomics`
+   applies them on the next buffer — audible in real time.
+
+This validates DLL loading, symbol export, the full extension set and the
+GUI end-to-end without any DAW — and doubles as a permanent regression
+harness. For Ableton specifically, Live needs the VST3 bridge
+([roadmap.md](roadmap.md)).
 
 ## Parameters
 

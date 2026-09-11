@@ -20,7 +20,7 @@ pub const LRESULT = isize;
 pub const LPCWSTR = [*c]const u16;
 pub const COLORREF = u32; // 0x00BBGGRR
 
-pub const POINT = extern struct { x: i32, y: i32 };
+pub const POINT = extern struct { x: i32 = 0, y: i32 = 0 };
 pub const RECT = extern struct { left: i32 = 0, top: i32 = 0, right: i32 = 0, bottom: i32 = 0 };
 
 pub const WNDCLASSW = extern struct {
@@ -45,8 +45,20 @@ pub const PAINTSTRUCT = extern struct {
     rgbReserved: [32]u8 = @splat(0),
 };
 
-// Mensagens / estilos
+pub const WM_CLOSE: UINT = 0x0010;
 pub const WM_DESTROY: UINT = 0x0002;
+pub const WS_OVERLAPPEDWINDOW: DWORD = 0x00CF0000;
+
+pub const MSG = extern struct {
+    hwnd: HWND = null,
+    message: UINT = 0,
+    wParam: WPARAM = 0,
+    lParam: LPARAM = 0,
+    time: DWORD = 0,
+    pt: POINT = .{},
+};
+
+// Mensagens / estilos
 pub const WM_PAINT: UINT = 0x000F;
 pub const WM_TIMER: UINT = 0x0113;
 pub const WM_ERASEBKGND: UINT = 0x0014;
@@ -116,9 +128,18 @@ pub extern "gdi32" fn TextOutW(hdc: HDC, x: i32, y: i32, text: [*c]const u16, c:
 pub extern "gdi32" fn SetTextColor(hdc: HDC, color: COLORREF) COLORREF;
 pub extern "gdi32" fn SetBkMode(hdc: HDC, mode: i32) i32;
 
+pub extern "user32" fn GetMessageW(lpMsg: *MSG, hWnd: ?*const HWND, min: u32, max: u32) i32;
+pub extern "user32" fn TranslateMessage(lpMsg: *const MSG) BOOL;
+pub extern "user32" fn DispatchMessageW(lpMsg: *const MSG) LRESULT;
+pub extern "user32" fn PostQuitMessage(exit_code: i32) void;
+pub extern "user32" fn AdjustWindowRect(lpRect: *RECT, dwStyle: DWORD, bMenu: BOOL) BOOL;
+
 // kernel32
 pub extern "kernel32" fn GetModuleHandleW(lpModuleName: ?*const u16) HINSTANCE;
 pub extern "kernel32" fn GetLastError() DWORD;
+pub extern "kernel32" fn LoadLibraryW(lpFileName: LPCWSTR) HINSTANCE;
+pub extern "kernel32" fn GetProcAddress(hModule: HINSTANCE, lpProcName: [*c]const u8) ?*anyopaque;
+pub extern "kernel32" fn FreeLibrary(hModule: HINSTANCE) BOOL;
 
 /// Converte um texto UTF-8 (runtime) para UTF-16 em `dest`.
 pub fn utf16(dest: []u16, text: []const u8) ![]const u16 {

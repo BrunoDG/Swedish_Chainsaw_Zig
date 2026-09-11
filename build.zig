@@ -137,6 +137,34 @@ pub fn build(b: *std.Build) void {
     b.getInstallStep().dependOn(&install_clap.step);
 
     // ------------------------------------------------------------------
+    // 5. Mini-host de teste (carrega o .clap real e embute a GUI)
+    // ------------------------------------------------------------------
+    const testhost = b.addExecutable(.{
+        .name = "clap_testhost",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/clap_testhost.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        }),
+    });
+    testhost.root_module.addIncludePath(b.path("lib/miniaudio"));
+    testhost.root_module.addCSourceFile(.{
+        .file = b.path("lib/miniaudio/miniaudio_impl.c"),
+        .flags = &[_][]const u8{"-std=c99"},
+    });
+    testhost.root_module.linkSystemLibrary("user32", .{});
+    b.installArtifact(testhost);
+
+    const run_testhost = b.addRunArtifact(testhost);
+    run_testhost.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_testhost.addArgs(args);
+    }
+    const testhost_step = b.step("testhost", "Executa o mini-host de teste do plugin CLAP");
+    testhost_step.dependOn(&run_testhost.step);
+
+    // ------------------------------------------------------------------
     // 4. Target LVGL (opcional: -Dlvgl) — UI headless em LVGL v9
     // ------------------------------------------------------------------
     if (with_lvgl) {

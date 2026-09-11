@@ -1,0 +1,31 @@
+# --- Zig build outputs ---
+.zig-cache/
+zig-out/
+.zig/
+
+# --- Zig linker artifacts ---
+*.pdb
+*.obj
+*.ilk
+
+# --- OS junk ---
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# --- Editors / IDEs ---
+.vscode/
+.idea/
+*.sublime-*
+*.swp
+*~
+
+# --- Scratch / temporários ---
+*.scratch.zig
+*.log
+
+# --- Dependências legadas (não usadas desde a reescrita da UI com raylib) ---
+# O app atual usa lib/raylib, lib/lvgl, lib/miniaudio e lib/clap, todos
+# compilados da fonte. cimgui/GLFW pré-compilados foram da era ImGui.
+lib/cimgui/
+lib/GLFW/

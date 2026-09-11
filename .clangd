@@ -1,0 +1,27 @@
+# Fallback do clangd para arquivos fora de compile_commands.json (ex.: os
+# fontes C do raylib/lvgl vendidos). O clangd aplica estes flags a qualquer
+# arquivo sem entrada explícita.
+CompileFlags:
+  Add:
+    [
+      -I,
+      lib,
+      -I,
+      lib/miniaudio,
+      -I,
+      lib/raylib/src,
+      -I,
+      lib/raylib/src/external,
+      -I,
+      lib/raylib/src/external/glfw/include,
+      -I,
+      lib/raylib/src/external/glfw/deps/mingw,
+      -I,
+      lib/lvgl,
+      -I,
+      lib/lvgl-config,
+      -DLV_CONF_INCLUDE_SIMPLE,
+      -DPLATFORM_DESKTOP,
+      -DGRAPHICS_API_OPENGL_33,
+      -D_GLFW_WIN32,
+    ]

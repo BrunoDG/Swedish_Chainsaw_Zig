@@ -1,0 +1,77 @@
+{
+    "version": 1.1,
+    "configurations": [
+        {
+            "directory": "D:/Repositories/VSTs/Zig/Swedish_Chainsaw_Zig",
+            "arguments": [
+                "clang",
+                "-xc",
+                "-std=c99",
+                "-I", "lib/miniaudio",
+                "-isystem", "C:/Users/bruno/.zvm/0.15.2/lib/libc/include/x86_64-windows-gnu",
+                "-isystem", "C:/Users/bruno/.zvm/0.15.2/lib/libc/include/generic-mingw",
+                "-isystem", "C:/Users/bruno/.zvm/0.15.2/lib/libc/include/any-windows-any",
+                "src/bindings.c"
+            ],
+            "file": "src/bindings.c"
+        },
+        {
+            "directory": "D:/Repositories/VSTs/Zig/Swedish_Chainsaw_Zig",
+            "arguments": [
+                "clang",
+                "-xc",
+                "-std=c99",
+                "-I", "lib",
+                "-isystem", "C:/Users/bruno/.zvm/0.15.2/lib/libc/include/x86_64-windows-gnu",
+                "-isystem", "C:/Users/bruno/.zvm/0.15.2/lib/libc/include/generic-mingw",
+                "-isystem", "C:/Users/bruno/.zvm/0.15.2/lib/libc/include/any-windows-any",
+                "src/clap_bindings.c"
+            ],
+            "file": "src/clap_bindings.c"
+        },
+        {
+            "directory": "D:/Repositories/VSTs/Zig/Swedish_Chainsaw_Zig",
+            "arguments": [
+                "clang",
+                "-xc",
+                "-std=c99",
+                "-I", "lib/raylib/src",
+                "-isystem", "C:/Users/bruno/.zvm/0.15.2/lib/libc/include/x86_64-windows-gnu",
+                "-isystem", "C:/Users/bruno/.zvm/0.15.2/lib/libc/include/generic-mingw",
+                "-isystem", "C:/Users/bruno/.zvm/0.15.2/lib/libc/include/any-windows-any",
+                "src/raylib_bindings.c"
+            ],
+            "file": "src/raylib_bindings.c"
+        },
+        {
+            "directory": "D:/Repositories/VSTs/Zig/Swedish_Chainsaw_Zig",
+            "arguments": [
+                "clang",
+                "-xc",
+                "-std=c99",
+                "-I", "lib/lvgl",
+                "-I", "lib/lvgl-config",
+                "-DLV_CONF_INCLUDE_SIMPLE",
+                "-isystem", "C:/Users/bruno/.zvm/0.15.2/lib/libc/include/x86_64-windows-gnu",
+                "-isystem", "C:/Users/bruno/.zvm/0.15.2/lib/libc/include/generic-mingw",
+                "-isystem", "C:/Users/bruno/.zvm/0.15.2/lib/libc/include/any-windows-any",
+                "src/lvgl_bindings.c"
+            ],
+            "file": "src/lvgl_bindings.c"
+        },
+        {
+            "directory": "D:/Repositories/VSTs/Zig/Swedish_Chainsaw_Zig",
+            "arguments": [
+                "clang",
+                "-xc",
+                "-std=c99",
+                "-I", "lib/miniaudio",
+                "-isystem", "C:/Users/bruno/.zvm/0.15.2/lib/libc/include/x86_64-windows-gnu",
+                "-isystem", "C:/Users/bruno/.zvm/0.15.2/lib/libc/include/generic-mingw",
+                "-isystem", "C:/Users/bruno/.zvm/0.15.2/lib/libc/include/any-windows-any",
+                "lib/miniaudio/miniaudio_impl.c"
+            ],
+            "file": "lib/miniaudio/miniaudio_impl.c"
+        }
+    ]
+}

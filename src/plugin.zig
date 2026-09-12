@@ -50,6 +50,7 @@ fn applyParamToPedal(pedal: *dsp.Hm2Pedal, field: ParamField, x: f32) void {
 pub const Instance = struct {
     pedal: dsp.Hm2Pedal = undefined,
     pedal_ready: bool = false,
+    host: [*c]const clap.clap_host_t = null,
     /// Valores publicados pela thread principal (flush/automação/GUI) e lidos
     /// pela thread de áudio; u32 = bitcast de f32.
     atomic_params: [num_params]std.atomic.Value(u32),
@@ -496,6 +497,7 @@ fn factoryCreatePlugin(
 
     const inst = std.heap.c_allocator.create(Instance) catch return null;
     inst.* = .{
+        .host = host,
         .atomic_params = undefined,
         .plugin = .{
             .desc = &plugin_descriptor,
@@ -516,7 +518,6 @@ fn factoryCreatePlugin(
     for (params, 0..) |def, i| {
         inst.atomic_params[i] = std.atomic.Value(u32).init(@bitCast(def.def));
     }
-    _ = host;
     return &inst.plugin;
 }
 
@@ -547,6 +548,8 @@ export var clap_entry: clap.clap_plugin_entry_t = .{
 };
 
 const DestroyFn = *const fn ([*c]const clap.clap_plugin_t) callconv(.c) void;
+const VoidFn = *const fn ([*c]const clap.clap_plugin_t) callconv(.c) void;
+const GetExtFn = *const fn ([*c]const clap.clap_plugin_t, [*c]const u8) callconv(.c) ?*const anyopaque;
 const ActivateFn = *const fn ([*c]const clap.clap_plugin_t, f64, u32, u32) callconv(.c) bool;
 const ProcessFn = *const fn ([*c]const clap.clap_plugin_t, [*c]const clap.clap_process_t) callconv(.c) clap.clap_process_status;
 
@@ -593,6 +596,90 @@ test "mapeamento painel→esquema (HIGH não é LEVEL!)" {
     const high = panel.paramOf(panel.panel[1]);
     try std.testing.expectEqualStrings("HIGH", high.name);
     try std.testing.expectEqual(@as(f32, 25.0), high.max);
+}
+
+// --- state save/load: streams falsos (host em miniatura) ---
+
+const TestOutStream = struct {
+    buf: [64]u8 = undefined,
+    len: usize = 0,
+
+    fn writeFn(ctx: [*c]const clap.clap_ostream_t, data: ?*const anyopaque, size: u64) callconv(.c) i64 {
+        const self: *TestOutStream = @ptrCast(@alignCast(@constCast(ctx.*.ctx)));
+        const n: usize = @intCast(@min(size, self.buf.len - self.len));
+        if (n == 0) return -1;
+        const src: [*]const u8 = @ptrCast(data orelse return -1);
+        @memcpy(self.buf[self.len..][0..n], src[0..n]);
+        self.len += n;
+        return @intCast(n);
+    }
+};
+
+const TestInStream = struct {
+    buf: []const u8,
+    pos: usize = 0,
+
+    fn readFn(ctx: [*c]const clap.clap_istream_t, data: ?*anyopaque, size: u64) callconv(.c) i64 {
+        const self: *TestInStream = @ptrCast(@alignCast(@constCast(ctx.*.ctx)));
+        if (self.pos >= self.buf.len) return 0;
+        const n: usize = @intCast(@min(size, self.buf.len - self.pos));
+        const dst: [*]u8 = @ptrCast(data orelse return -1);
+        @memcpy(dst[0..n], self.buf[self.pos..][0..n]);
+        self.pos += n;
+        return @intCast(n);
+    }
+};
+
+test "state save/load round-trip" {
+    const tp = try makeTestPlugin();
+    const destroy: VoidFn = @ptrCast(@alignCast(tp.plugin.*.destroy.?));
+    defer destroy(tp.plugin);
+
+    const inst = instanceFromPlugin(tp.plugin);
+
+    // Muda os params via GUI (publishParam — o caminho da thread principal)
+    publishParam(inst, 0, 5.0); // GAIN
+    publishParam(inst, 1, 0.75); // LEVEL
+    publishParam(inst, 2, 10.0); // LOW
+    publishParam(inst, 3, 22.0); // HIGH
+
+    // Save: coleta os 16 bytes no buffer do host
+    const getext: GetExtFn = @ptrCast(@alignCast(tp.plugin.*.get_extension.?));
+    const state_addr = getext(tp.plugin, &clap.CLAP_EXT_STATE) orelse return error.NoState;
+    const state: *const clap.clap_plugin_state_t = @ptrCast(@alignCast(state_addr));
+
+    var out = TestOutStream{};
+    var ostream = clap.clap_ostream_t{ .ctx = @ptrCast(&out), .write = TestOutStream.writeFn };
+    try std.testing.expect(state.save.?(tp.plugin, &ostream));
+    try std.testing.expectEqual(@as(usize, 16), out.len); // 4 params × 4 bytes
+
+    // Suja os valores
+    publishParam(inst, 0, 30.0);
+    publishParam(inst, 1, 0.0);
+    publishParam(inst, 2, 0.0);
+    publishParam(inst, 3, 0.0);
+
+    // Load de volta
+    var istream = clap.clap_istream_t{
+        .ctx = null,
+        .read = TestInStream.readFn,
+    };
+    var in = TestInStream{ .buf = out.buf[0..out.len] };
+    istream.ctx = @ptrCast(&in);
+    try std.testing.expect(state.load.?(tp.plugin, &istream));
+
+    // Verifica via get_value (mesma origem que o host lê)
+    const params_addr = getext(tp.plugin, &clap.CLAP_EXT_PARAMS) orelse return error.NoParams;
+    const params_ext: *const clap.clap_plugin_params_t = @ptrCast(@alignCast(params_addr));
+    var v: f64 = 0;
+    try std.testing.expect(params_ext.get_value.?(tp.plugin, 1, &v));
+    try std.testing.expectApproxEqAbs(@as(f64, 5.0), v, 0.001);
+    try std.testing.expect(params_ext.get_value.?(tp.plugin, 2, &v));
+    try std.testing.expectApproxEqAbs(@as(f64, 0.75), v, 0.001);
+    try std.testing.expect(params_ext.get_value.?(tp.plugin, 3, &v));
+    try std.testing.expectApproxEqAbs(@as(f64, 10.0), v, 0.001);
+    try std.testing.expect(params_ext.get_value.?(tp.plugin, 4, &v));
+    try std.testing.expectApproxEqAbs(@as(f64, 22.0), v, 0.001);
 }
 
 test "processa áudio com evento de parâmetro sample-accurate" {

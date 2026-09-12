@@ -1,8 +1,8 @@
 //! Renderer GDI do painel HM-2 — terceiro consumidor do mesmo contrato
 //! (ui/panel.zig + dsp.zig), usado pela GUI do plugin CLAP embutida na DAW.
 //!
-//! GDI não tem anti-aliasing; o objetivo aqui é funcionalidade (janela filha
-//! dentro da DAW), não beleza. O desenho bonito vive no renderer raylib.
+//! GDI não tem anti-aliasing; double-buffering acontece no plugin_gui.zig
+//! (WM_PAINT desenha num memory DC e blita).
 
 const std = @import("std");
 const win = @import("../win32.zig");
@@ -16,6 +16,8 @@ pub const col_bg = win.rgb(18, 18, 20);
 const col_face = win.rgb(40, 40, 45);
 const col_active = win.rgb(70, 70, 78);
 const col_border = win.rgb(0, 0, 0);
+const col_face_hi = win.rgb(58, 58, 64);
+const col_hover = win.rgb(55, 55, 61);
 const col_accent = win.rgb(255, 128, 0);
 const col_text = win.rgb(200, 200, 200);
 const col_text_dim = win.rgb(120, 120, 125);
@@ -23,6 +25,11 @@ const col_text_dim = win.rgb(120, 120, 125);
 pub const drag_sensitivity: f32 = 0.005;
 const arc_start: f32 = 135.0;
 const arc_sweep: f32 = 270.0;
+
+fn makeUiFont(scale: f32) ?*anyopaque {
+    const px: i32 = @intFromFloat(-13.0 * scale);
+    return win.CreateFontW(px, 0, 0, 0, win.FW_NORMAL, 0, 0, 0, 0, 0, 0, win.CLEARTYPE_QUALITY, 0, null);
+}
 
 pub const KnobRect = struct {
     center: win.POINT,
@@ -56,18 +63,32 @@ pub fn needleAngle(t: f32) f32 {
 
 /// Desenha o painel inteiro num HDC (WM_PAINT). `values` vem das atomics
 /// da instância (lidas na thread principal — mesma origem do get_value).
-pub fn drawPanel(hdc: HDC, width: i32, height: i32, values: [dsp.params.len]f32, active: ?usize) void {
+/// `scale` é o fator de DPI informado pelo host (clap.gui set_scale).
+pub fn drawPanel(
+    hdc: HDC,
+    width: i32,
+    height: i32,
+    values: [dsp.params.len]f32,
+    active: ?usize,
+    hover: ?usize,
+    scale: f32,
+) void {
     _ = win.SetBkMode(hdc, win.TRANSPARENT);
-    _ = win.SetTextColor(hdc, col_text);
-    _ = win.SelectObject(hdc, win.GetStockObject(win.DEFAULT_GUI_FONT));
+    const font = makeUiFont(scale);
+    const old_font = win.SelectObject(hdc, font);
 
     for (panel.panel, 0..) |widget, i| {
         const def = panel.paramOf(widget);
         const r = knobRect(i, width, height);
         // values está na ordem do ESQUEMA (dsp.params); mapear pelo campo!
         const value = values[panel.paramIndexOf(widget)];
-        drawKnob(hdc, def, widget.label, value, r.center, r.radius, active != null and active.? == i);
+        const active_knob = active != null and active.? == i;
+        const hover_knob = hover != null and hover.? == i;
+        drawKnob(hdc, def, widget.label, value, r.center, r.radius, active_knob, hover_knob);
     }
+
+    _ = win.SelectObject(hdc, old_font);
+    _ = win.DeleteObject(font);
 }
 
 fn drawKnob(
@@ -78,9 +99,10 @@ fn drawKnob(
     center: win.POINT,
     radius: i32,
     active: bool,
+    hover: bool,
 ) void {
-    // Face do knob
-    const face = win.CreateSolidBrush(if (active) col_active else col_face);
+    // Anel externo: face + borda escura
+    const face = win.CreateSolidBrush(if (active) col_active else if (hover) col_hover else col_face);
     const border_pen = win.CreatePen(win.PS_SOLID, 2, col_border);
     _ = win.SelectObject(hdc, face);
     _ = win.SelectObject(hdc, border_pen);
@@ -88,10 +110,17 @@ fn drawKnob(
     _ = win.DeleteObject(face);
     _ = win.DeleteObject(border_pen);
 
+    // Cap interno mais claro — dá profundidade ao knob
+    const ir: i32 = @intFromFloat(@as(f32, @floatFromInt(radius)) * 0.72);
+    const cap = win.CreateSolidBrush(col_face_hi);
+    _ = win.SelectObject(hdc, cap);
+    _ = win.Ellipse(hdc, center.x - ir, center.y - ir, center.x + ir, center.y + ir);
+    _ = win.DeleteObject(cap);
+
     // Ponteiro
     const t = (value - def.min) / (def.max - def.min);
     const angle = needleAngle(t) * std.math.pi / 180.0;
-    const len: i32 = @intFromFloat(@as(f32, @floatFromInt(radius)) * 0.72);
+    const len: i32 = @intFromFloat(@as(f32, @floatFromInt(radius)) * 0.82);
     const tip_x = center.x + @as(i32, @intFromFloat(@cos(angle) * @as(f32, @floatFromInt(len))));
     const tip_y = center.y + @as(i32, @intFromFloat(@sin(angle) * @as(f32, @floatFromInt(len))));
 

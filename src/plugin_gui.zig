@@ -23,8 +23,12 @@ pub const GuiState = struct {
     hwnd: ?*anyopaque = null,
     width: u32 = default_w,
     height: u32 = default_h,
+    /// Fator de DPI informado pelo host (set_scale) — escala a fonte.
+    scale: f64 = 1.0,
     drag_idx: ?usize = null,
     drag_last_y: i32 = 0,
+    hover_idx: ?usize = null,
+    mouse_tracked: bool = false,
 };
 
 // ============================================================================
@@ -68,9 +72,27 @@ fn guiDestroy(plugin_ptr: [*c]const clap.clap_plugin_t) callconv(.c) void {
 }
 
 fn guiSetScale(plugin_ptr: [*c]const clap.clap_plugin_t, scale: f64) callconv(.c) bool {
-    _ = plugin_ptr;
-    _ = scale; // protótipo: sem ajuste de DPI
+    const inst = plugin.instanceFromPlugin(plugin_ptr);
+    if (scale <= 0.0 or scale > 8.0) return false;
+    if (inst.gui.scale != scale) {
+        inst.gui.scale = scale;
+        // Pede ao host para redimensionar a janela proporcionalmente ao DPI;
+        // a fonte e o layout escalam junto (o layout é proporcional a w/h).
+        requestResizeFromHost(inst, @intFromFloat(@round(default_w_f * scale)), @intFromFloat(@round(default_h_f * scale)));
+    }
     return true;
+}
+
+const default_w_f: f64 = 320.0;
+const default_h_f: f64 = 300.0;
+
+fn requestResizeFromHost(inst: *Instance, w: u32, h: u32) void {
+    const host = inst.host orelse return;
+    const getext: *const fn ([*c]const clap.clap_host_t, [*c]const u8) callconv(.c) ?*const anyopaque =
+        @ptrCast(@alignCast(host.*.get_extension orelse return));
+    const hg_addr = getext(host, &clap.CLAP_EXT_GUI) orelse return;
+    const hg: *const clap.clap_host_gui_t = @ptrCast(@alignCast(hg_addr));
+    if (hg.request_resize) |rr| _ = rr(host, w, h);
 }
 
 fn guiGetSize(plugin_ptr: [*c]const clap.clap_plugin_t, w: [*c]u32, h: [*c]u32) callconv(.c) bool {
@@ -82,7 +104,7 @@ fn guiGetSize(plugin_ptr: [*c]const clap.clap_plugin_t, w: [*c]u32, h: [*c]u32) 
 
 fn guiCanResize(plugin_ptr: [*c]const clap.clap_plugin_t) callconv(.c) bool {
     _ = plugin_ptr;
-    return false;
+    return true;
 }
 
 fn guiGetResizeHints(
@@ -90,14 +112,18 @@ fn guiGetResizeHints(
     hints: [*c]clap.clap_gui_resize_hints_t,
 ) callconv(.c) bool {
     _ = plugin_ptr;
-    _ = hints;
-    return false;
+    hints.*.can_resize_horizontally = true;
+    hints.*.can_resize_vertically = true;
+    hints.*.preserve_aspect_ratio = false;
+    hints.*.aspect_ratio_width = 0;
+    hints.*.aspect_ratio_height = 0;
+    return true;
 }
 
 fn guiAdjustSize(plugin_ptr: [*c]const clap.clap_plugin_t, w: [*c]u32, h: [*c]u32) callconv(.c) bool {
     _ = plugin_ptr;
-    w.* = default_w;
-    h.* = default_h;
+    w.* = @max(260, @min(w.*, 900));
+    h.* = @max(240, @min(h.*, 900));
     return true;
 }
 
@@ -245,23 +271,38 @@ fn wndProc(hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM, lparam: win.LPARAM
         win.WM_PAINT => {
             var ps: win.PAINTSTRUCT = .{};
             const hdc = win.BeginPaint(hwnd, &ps);
-            // Pinta o fundo sobre a região de update (InvalidateRect é chamado
-            // com bErase=0, então sem isso os textos fantasmas se acumulam)
-            const bg = win.CreateSolidBrush(gdi.col_bg);
-            _ = win.FillRect(hdc, &ps.rcPaint, bg);
-            _ = win.DeleteObject(bg);
-            gdi.drawPanel(hdc, size.w, size.h, valuesFromInstance(inst), inst.gui.drag_idx);
+
+            // Double-buffering: desenha num memory DC e blita de uma vez
+            // (sem flicker durante drags)
+            if (size.w > 0 and size.h > 0) {
+                const memdc = win.CreateCompatibleDC(hdc);
+                const bmp = win.CreateCompatibleBitmap(hdc, size.w, size.h);
+                const old_bmp = win.SelectObject(memdc, bmp);
+
+                const bg = win.CreateSolidBrush(gdi.col_bg);
+                var full = win.RECT{ .left = 0, .top = 0, .right = size.w, .bottom = size.h };
+                _ = win.FillRect(memdc, &full, bg);
+                _ = win.DeleteObject(bg);
+
+                gdi.drawPanel(
+                    memdc,
+                    size.w,
+                    size.h,
+                    valuesFromInstance(inst),
+                    inst.gui.drag_idx,
+                    inst.gui.hover_idx,
+                    @floatCast(inst.gui.scale),
+                );
+
+                _ = win.BitBlt(hdc, 0, 0, size.w, size.h, memdc, 0, 0, win.SRCCOPY);
+                _ = win.SelectObject(memdc, old_bmp);
+                _ = win.DeleteObject(bmp);
+                _ = win.DeleteDC(memdc);
+            }
             _ = win.EndPaint(hwnd, &ps);
             return 0;
         },
-        win.WM_ERASEBKGND => {
-            const hdc: win.HDC = @ptrFromInt(wparam);
-            const brush = win.CreateSolidBrush(gdi.col_bg);
-            var rect = win.RECT{ .left = 0, .top = 0, .right = size.w, .bottom = size.h };
-            _ = win.FillRect(hdc, &rect, brush);
-            _ = win.DeleteObject(brush);
-            return 1;
-        },
+        win.WM_ERASEBKGND => return 1, // o WM_PAINT já pinta tudo (double-buffer)
         win.WM_TIMER => {
             _ = win.InvalidateRect(hwnd, null, 0); // feedback de automação
             return 0;
@@ -298,7 +339,45 @@ fn wndProc(hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM, lparam: win.LPARAM
                     plugin.publishParam(inst, pidx, next);
                     _ = win.InvalidateRect(hwnd, null, 0);
                 }
+            } else {
+                // Hover highlight (sem drag)
+                var hover: ?usize = null;
+                const cursor = win.POINT{
+                    .x = getXParam(lparam),
+                    .y = getYParam(lparam),
+                };
+                for (0..panel.panel.len) |i| {
+                    if (gdi.hitTest(i, size.w, size.h, cursor.x, cursor.y)) {
+                        hover = i;
+                        break;
+                    }
+                }
+                if (hover != inst.gui.hover_idx) {
+                    inst.gui.hover_idx = hover;
+                    _ = win.InvalidateRect(hwnd, null, 0);
+                }
+                if (!inst.gui.mouse_tracked) {
+                    var tme = win.TRACKMOUSEEVENT{
+                        .cbSize = @sizeOf(win.TRACKMOUSEEVENT),
+                        .dwFlags = win.TME_LEAVE,
+                        .hwndTrack = hwnd,
+                    };
+                    _ = win.TrackMouseEvent(&tme);
+                    inst.gui.mouse_tracked = true;
+                }
             }
+            return 0;
+        },
+        win.WM_MOUSELEAVE => {
+            if (inst.gui.hover_idx != null) {
+                inst.gui.hover_idx = null;
+                inst.gui.mouse_tracked = false;
+                _ = win.InvalidateRect(hwnd, null, 0);
+            }
+            return 0;
+        },
+        win.WM_SIZE => {
+            _ = win.InvalidateRect(hwnd, null, 0);
             return 0;
         },
         win.WM_LBUTTONUP => {

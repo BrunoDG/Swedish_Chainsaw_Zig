@@ -127,6 +127,40 @@ pub extern "gdi32" fn LineTo(hdc: HDC, x: i32, y: i32) BOOL;
 pub extern "gdi32" fn TextOutW(hdc: HDC, x: i32, y: i32, text: [*c]const u16, c: i32) BOOL;
 pub extern "gdi32" fn SetTextColor(hdc: HDC, color: COLORREF) COLORREF;
 pub extern "gdi32" fn SetBkMode(hdc: HDC, mode: i32) i32;
+pub extern "gdi32" fn CreateFontW(
+    cHeight: i32,
+    cWidth: i32,
+    cEscapement: i32,
+    cOrientation: i32,
+    cWeight: i32,
+    bItalic: DWORD,
+    bUnderline: DWORD,
+    bStrikeOut: DWORD,
+    iCharSet: DWORD,
+    iOutPrecision: DWORD,
+    iClipPrecision: DWORD,
+    iQuality: DWORD,
+    iPitchAndFamily: DWORD,
+    pszFaceName: ?*const u16,
+) ?*anyopaque;
+pub extern "gdi32" fn CreateCompatibleDC(hdc: HDC) HDC;
+pub extern "gdi32" fn CreateCompatibleBitmap(hdc: HDC, width: i32, height: i32) HGDIOBJ;
+pub extern "gdi32" fn BitBlt(hdcDst: HDC, x: i32, y: i32, w: i32, h: i32, hdcSrc: HDC, x1: i32, y1: i32, rop: DWORD) BOOL;
+pub extern "gdi32" fn DeleteDC(hdc: HDC) BOOL;
+pub const SRCCOPY: u32 = 0x00CC0020;
+pub const FW_NORMAL: i32 = 400;
+pub const CLEARTYPE_QUALITY: u32 = 4;
+
+pub const WM_MOUSELEAVE: UINT = 0x02A2;
+pub const WM_SIZE: UINT = 0x0005;
+pub const TME_LEAVE: u32 = 0x0002;
+pub const TRACKMOUSEEVENT = extern struct {
+    cbSize: DWORD = 0,
+    dwFlags: DWORD = 0,
+    hwndTrack: HWND = null,
+    dwHoverTime: DWORD = 0,
+};
+pub extern "user32" fn TrackMouseEvent(lpEventTrack: *TRACKMOUSEEVENT) BOOL;
 
 pub extern "user32" fn GetMessageW(lpMsg: *MSG, hWnd: ?*const HWND, min: u32, max: u32) i32;
 pub extern "user32" fn TranslateMessage(lpMsg: *const MSG) BOOL;

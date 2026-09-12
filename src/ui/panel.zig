@@ -27,10 +27,16 @@ pub const panel = [_]Widget{
     .{ .field = .level, .label = "LEVEL", .kind = .knob },
 };
 
-/// Encontra a spec do parâmetro ligada a um widget.
-pub fn paramOf(widget: Widget) dsp.ParamDef {
-    for (dsp.params) |p| {
-        if (p.field == widget.field) return p;
+/// Índice do parâmetro no esquema (dsp.params) — a ordem de EXIBIÇÃO do
+/// painel é diferente da ordem do ESQUEMA; sempre mapear pelo campo!
+pub fn paramIndexOf(widget: Widget) usize {
+    for (dsp.params, 0..) |p, i| {
+        if (p.field == widget.field) return i;
     }
     unreachable;
+}
+
+/// Encontra a spec do parâmetro ligada a um widget.
+pub fn paramOf(widget: Widget) dsp.ParamDef {
+    return dsp.params[paramIndexOf(widget)];
 }

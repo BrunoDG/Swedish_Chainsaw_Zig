@@ -10,6 +10,7 @@ const clap = @import("clap_bindings.zig");
 const win = @import("win32.zig");
 const gdi = @import("ui/gdi.zig");
 const dsp = @import("dsp.zig");
+const panel = @import("ui/panel.zig");
 const plugin = @import("plugin.zig");
 
 const Instance = plugin.Instance;
@@ -281,16 +282,20 @@ fn wndProc(hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM, lparam: win.LPARAM
             return 0;
         },
         win.WM_MOUSEMOVE => {
-            if (inst.gui.drag_idx) |idx| {
+            if (inst.gui.drag_idx) |panel_i| {
                 const y = getYParam(lparam);
                 const dy = y - inst.gui.drag_last_y;
                 if (dy != 0) {
                     inst.gui.drag_last_y = y;
-                    const def = dsp.params[idx];
-                    const cur = plugin.loadParam(&inst.atomic_params[idx]);
+                    // drag_idx é a posição no PAINEL; o parâmetro vive na ordem
+                    // do ESQUEMA (dsp.params) — mapear pelo campo, senão o HIGH
+                    // arrasta o LEVEL (0..1) em vez do HIGH (0..25 dB)!
+                    const pidx = panel.paramIndexOf(panel.panel[panel_i]);
+                    const def = dsp.params[pidx];
+                    const cur = plugin.loadParam(&inst.atomic_params[pidx]);
                     const range = def.max - def.min;
                     const next = std.math.clamp(cur - @as(f32, @floatFromInt(dy)) * gdi.drag_sensitivity * range, def.min, def.max);
-                    plugin.publishParam(inst, idx, next);
+                    plugin.publishParam(inst, pidx, next);
                     _ = win.InvalidateRect(hwnd, null, 0);
                 }
             }

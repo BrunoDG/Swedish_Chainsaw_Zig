@@ -64,7 +64,9 @@ pub fn drawPanel(hdc: HDC, width: i32, height: i32, values: [dsp.params.len]f32,
     for (panel.panel, 0..) |widget, i| {
         const def = panel.paramOf(widget);
         const r = knobRect(i, width, height);
-        drawKnob(hdc, def, widget.label, values[i], r.center, r.radius, active != null and active.? == i);
+        // values está na ordem do ESQUEMA (dsp.params); mapear pelo campo!
+        const value = values[panel.paramIndexOf(widget)];
+        drawKnob(hdc, def, widget.label, value, r.center, r.radius, active != null and active.? == i);
     }
 }
 

@@ -580,6 +580,21 @@ test "factory cria e ativa o plugin" {
     destroy(tp.plugin);
 }
 
+test "mapeamento painel→esquema (HIGH não é LEVEL!)" {
+    // Ordem de EXIBIÇÃO: GAIN, HIGH, LOW, LEVEL
+    // Ordem do ESQUEMA:  GAIN, LEVEL, LOW, HIGH
+    const panel = @import("ui/panel.zig");
+    try std.testing.expectEqual(@as(usize, 0), panel.paramIndexOf(panel.panel[0])); // GAIN → 0
+    try std.testing.expectEqual(@as(usize, 3), panel.paramIndexOf(panel.panel[1])); // HIGH → 3 (não 1!)
+    try std.testing.expectEqual(@as(usize, 2), panel.paramIndexOf(panel.panel[2])); // LOW → 2
+    try std.testing.expectEqual(@as(usize, 1), panel.paramIndexOf(panel.panel[3])); // LEVEL → 1
+
+    // o HIGH do painel tem que resolver no HIGH do esquema (0..25 dB)
+    const high = panel.paramOf(panel.panel[1]);
+    try std.testing.expectEqualStrings("HIGH", high.name);
+    try std.testing.expectEqual(@as(f32, 25.0), high.max);
+}
+
 test "processa áudio com evento de parâmetro sample-accurate" {
     const tp = try makeTestPlugin();
     const destroy: DestroyFn = @ptrCast(@alignCast(tp.plugin.*.destroy.?));

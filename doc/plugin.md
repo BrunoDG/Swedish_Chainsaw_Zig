@@ -75,22 +75,16 @@ cmake --build wrapper/build -j8
 Ableton then scans the per-user VST3 folder; the GUI comes through the
 wrapper's VST3 `IPlugView` ↔ our `clap.gui` bridging.
 
-## GUI (`clap.gui` extension, `src/plugin_gui.zig`)
-
-The plugin implements the `clap.gui` extension with the **Win32** API
-(embedded/non-floating only):
-
-- `is_api_supported("win32", false)` → true; floating windows rejected.
-- `set_parent(clap_window)` → creates a child `HWND` under the host-provided
-  window (window class `SwedishChainsawHM2Gui`, registered once; the plugin
-  `Instance` pointer is attached via `GWLP_USERDATA`).
 - `create/destroy/get_size/set_size/adjust_size/set_visible(show,hide)/
-  suggest_title/set_scale/set_transient` all implemented; fixed 320×300 size,
-  `can_resize` = false (prototype).
+  suggest_title/set_scale/set_transient` all implemented. **Resizable**
+  (`can_resize`, hints, `adjust_size` clamped 260×240–900×900) and
+  **DPI-aware** (`set_scale` stores the factor, scales the font via
+  `CreateFontW`, and asks the host to resize via `clap_host_gui.request_resize`).
 - **Painting**: `src/ui/gdi.zig` — the third renderer of the shared panel
   model (GDI has no anti-aliasing; raylib keeps the pretty desktop look).
   Values are read from the instance atomics (main thread), so the GUI always
-  agrees with `params.get_value`.
+  agrees with `params.get_value`. Drawing is **double-buffered** (memory DC +
+  `BitBlt`) — zero flicker during drags.
 - **Input**: WM_LBUTTONDOWN captures the mouse over a knob; WM_MOUSEMOVE drags
   vertically (same ±0.005%/px sensitivity as the other renderers) and calls
   `plugin.publishParam` (atomic store). A 30 ms `WM_TIMER` repaints so host
@@ -104,8 +98,9 @@ The plugin implements the `clap.gui` extension with the **Win32** API
   were needed — `clap_plugin_gui` fn pointers take `clap_plugin_t`, which
   resolves after the existing erasure.
 
-Validated at compile level + the full mini-host test suite. Runtime check
-inside a real DAW is the remaining manual step.
+Validated by the full mini-host test suite (including the **state
+save/load round-trip** below) and live in Ableton Live 11 via the VST3
+bridge.
 
 ## Testing without a DAW: the mini-host (`src/clap_testhost.zig`)
 

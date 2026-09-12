@@ -1,14 +1,10 @@
-# Roadmap
-
-Ordered by what unblocks the next real milestone.
-
-## 1. CLAP GUI — done (prototype)
+## 1. CLAP GUI — shipped (resizable + DPI)
 
 `clap.gui` (Win32, embedded) + GDI renderer shipped in `plugin_gui.zig`/
-`ui/gdi.zig`. Remaining polish: resizable window (`request_resize`), DPI
-scaling (`set_scale` is a stub), floating-window support, and a visual pass
-(GDI has no anti-aliasing — an offscreen-GL or raylib-embedded variant can
-replace GDI later).
+`ui/gdi.zig`: double-buffered paint, hover highlight, resizable window with
+proper hints/adjust, DPI via `set_scale` + `request_resize`. Remaining polish:
+floating-window support, parameter smoothing (de-zipper), and a visual pass
+beyond GDI (offscreen-GL or raylib-embedded for anti-aliasing).
 
 ## ESP32 / LVGL on hardware
 

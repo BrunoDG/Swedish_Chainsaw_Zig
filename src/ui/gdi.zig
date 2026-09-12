@@ -30,13 +30,13 @@ pub const KnobRect = struct {
 };
 
 /// Geometria 2×2 proporcional ao tamanho da janela.
+/// Layout: labels ACIMA e valores ABAIXO, com espaço calculado para não
+/// colidirem entre as duas fileiras (corrigido: antes os labels da fileira
+/// de baixo desenhavam por cima dos knobs/valores de cima).
 pub fn knobRect(index: usize, width: i32, height: i32) struct { center: win.POINT, radius: i32 } {
     const col: i32 = if (index % 2 == 0) @divTrunc(width, 4) else @divTrunc(width, 4) * 3;
-    const row: i32 = if (index / 2 == 0) @divTrunc(height, 8) * 3 else @divTrunc(height, 8) * 6;
-    const radius: i32 = @intFromFloat(@min(
-        @as(f32, @floatFromInt(width)) * 0.17,
-        @as(f32, @floatFromInt(height)) * 0.20,
-    ));
+    const row: i32 = if (index / 2 == 0) @divTrunc(height, 8) * 2 else @divTrunc(height, 8) * 6;
+    const radius: i32 = @intFromFloat(@as(f32, @floatFromInt(@min(width, height))) * 0.15);
     return .{ .center = .{ .x = col, .y = row }, .radius = radius };
 }
 

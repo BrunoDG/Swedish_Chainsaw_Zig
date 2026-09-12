@@ -13,6 +13,7 @@ const std = @import("std");
 const clap = @import("clap_bindings.zig");
 const dsp = @import("dsp.zig");
 const plugin_gui = @import("plugin_gui.zig");
+const plugin_log = @import("plugin_log.zig");
 
 // ============================================================================
 // Definição dos parâmetros — re-exportada do esquema compartilhado (dsp.zig)
@@ -52,6 +53,8 @@ pub const Instance = struct {
     /// Valores publicados pela thread principal (flush/automação/GUI) e lidos
     /// pela thread de áudio; u32 = bitcast de f32.
     atomic_params: [num_params]std.atomic.Value(u32),
+    /// Bitmask: params alterados pela GUI aguardando notificação do host.
+    pending: std.atomic.Value(u32) = std.atomic.Value(u32).init(0),
     plugin: clap.clap_plugin_t = undefined,
     gui: plugin_gui.GuiState = .{},
 };
@@ -61,14 +64,20 @@ pub fn instanceFromPlugin(plugin_ptr: [*c]const clap.clap_plugin_t) *Instance {
 }
 
 /// Publica um valor vindo da thread principal (GUI/flush) — a thread de áudio
-/// aplica no início do próximo buffer (syncParamsFromAtomics).
+/// aplica no início do próximo buffer (syncParamsFromAtomics) e notifica o
+/// host via evento param_value em out_events (sem isso o host segue com o
+/// valor antigo e "briga" com o knob da GUI).
 pub fn publishParam(inst: *Instance, idx: usize, x: f32) void {
     storeParam(&inst.atomic_params[idx], x);
+    _ = inst.pending.fetchOr(@as(u32, 1) << @intCast(idx), .monotonic);
+    plugin_log.log("ui {s} = {d}", .{ params[idx].name, x });
 }
 
 // ============================================================================
 // Processamento de áudio
 // ============================================================================
+
+var proc_log_counter: u32 = 0; // thread de áudio
 
 fn pluginProcess(
     plugin_ptr: [*c]const clap.clap_plugin_t,
@@ -76,14 +85,52 @@ fn pluginProcess(
 ) callconv(.c) clap.clap_process_status {
     const self = instanceFromPlugin(plugin_ptr);
 
-    const out_bufs: [*c]clap.clap_audio_buffer_t = process.*.audio_outputs orelse
-        return @intCast(clap.CLAP_PROCESS_ERROR);
-    if (out_bufs.*.data32 == null or out_bufs.*.channel_count == 0)
-        return @intCast(clap.CLAP_PROCESS_ERROR);
+    // Nunca retorna ERROR: buffers ausentes são casos transitórios em hosts
+    // reais, e um ERROR pode fazer o wrapper passar o áudio seco para sempre.
+    const out_bufs: [*c]clap.clap_audio_buffer_t = process.*.audio_outputs orelse {
+        plugin_log.log("process: audio_outputs nulo", .{});
+        return @intCast(clap.CLAP_PROCESS_CONTINUE);
+    };
+    if (out_bufs.*.data32 == null or out_bufs.*.channel_count == 0) {
+        plugin_log.log("process: data32 nulo ou 0 canais (ch={})", .{out_bufs.*.channel_count});
+        return @intCast(clap.CLAP_PROCESS_CONTINUE);
+    }
 
     // Valores publicados fora da thread de áudio (GUI/flush) aplicam-se no
     // início do buffer; eventos in_events continuam sample-accurates.
     syncParamsFromAtomics(self);
+
+    const frames = process.*.frames_count;
+
+    // Notifica o host das mudanças feitas pela GUI (evento param_value em
+    // out_events); params recém-publicados são ignorados no walk deste buffer
+    // para o echo do host não reverter o drag.
+    var just_pushed = [_]bool{false} ** num_params;
+    {
+        const mask = self.pending.load(.monotonic);
+        if (mask != 0) {
+            if (process.*.out_events) |oe| {
+                if (oe.*.try_push) |try_push| {
+                    var i: u32 = 0;
+                    while (i < num_params) : (i += 1) {
+                        const bit = @as(u32, 1) << @intCast(i);
+                        if (mask & bit == 0) continue;
+                        var ev = std.mem.zeroes(clap.clap_event_param_value_t);
+                        ev.header.size = @sizeOf(clap.clap_event_param_value_t);
+                        ev.header.time = 0;
+                        ev.header.space_id = 0;
+                        ev.header.type = @intCast(clap.CLAP_EVENT_PARAM_VALUE);
+                        ev.param_id = params[i].id;
+                        ev.value = loadParam(&self.atomic_params[i]);
+                        if (try_push(oe, &ev.header)) {
+                            just_pushed[i] = true;
+                            _ = self.pending.fetchAnd(~bit, .monotonic);
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     const in_events: [*c]const clap.clap_input_events_t = process.*.in_events;
     const ev_n: u32 = if (in_events != null)
@@ -98,7 +145,11 @@ fn pluginProcess(
 
     const out_channels = out_bufs.*.channel_count;
     const out_data = out_bufs.*.data32;
-    const frames = process.*.frames_count;
+
+    proc_log_counter += 1;
+    if (proc_log_counter % 1024 == 0) {
+        plugin_log.log("process #{}: frames={} in_ch={} out_ch={} has_input={} pending=0x{x}", .{ proc_log_counter, frames, in_channels, out_channels, has_input, self.pending.load(.monotonic) });
+    }
 
     var ev_i: u32 = 0;
     var frame: u32 = 0;
@@ -110,6 +161,7 @@ fn pluginProcess(
             if (ev.*.type == @as(u16, @intCast(clap.CLAP_EVENT_PARAM_VALUE))) {
                 const pv: *const clap.clap_event_param_value_t = @ptrCast(@alignCast(ev));
                 if (paramIndexById(pv.*.param_id)) |idx| {
+                    if (just_pushed[idx]) continue; // eco do valor que nós mesmos publicamos
                     const x: f32 = std.math.clamp(
                         @as(f32, @floatCast(pv.*.value)),
                         params[idx].min,
@@ -168,15 +220,17 @@ fn pluginDestroy(plugin: [*c]const clap.clap_plugin_t) callconv(.c) void {
 }
 
 fn pluginActivate(
-    plugin: [*c]const clap.clap_plugin_t,
+    plugin_ptr: [*c]const clap.clap_plugin_t,
     sample_rate: f64,
     min_frames_count: u32,
     max_frames_count: u32,
 ) callconv(.c) bool {
     _ = min_frames_count;
     _ = max_frames_count;
-    const self = instanceFromPlugin(plugin);
+    const self = instanceFromPlugin(plugin_ptr);
     self.pedal = dsp.Hm2Pedal.init(@floatCast(sample_rate));
+    plugin_log.log("activate sample_rate={d}", .{sample_rate});
+
     // Params setados pelo host antes da ativação
     for (params, 0..) |def, i| {
         applyParamToPedal(&self.pedal, def.field, loadParam(&self.atomic_params[i]));

@@ -141,6 +141,27 @@ pub extern "kernel32" fn LoadLibraryW(lpFileName: LPCWSTR) HINSTANCE;
 pub extern "kernel32" fn GetProcAddress(hModule: HINSTANCE, lpProcName: [*c]const u8) ?*anyopaque;
 pub extern "kernel32" fn FreeLibrary(hModule: HINSTANCE) BOOL;
 
+// Arquivo (para o log de diagnóstico)
+pub const HANDLE = ?*anyopaque;
+pub const FILE_APPEND_DATA: u32 = 0x0002;
+pub const FILE_SHARE_READ: u32 = 0x1;
+pub const FILE_SHARE_WRITE: u32 = 0x2;
+pub const OPEN_ALWAYS: u32 = 4;
+pub const FILE_END: u32 = 2;
+pub const INVALID_HANDLE_VALUE: HANDLE = @ptrFromInt(@as(usize, @bitCast(@as(isize, -1))));
+pub extern "kernel32" fn GetEnvironmentVariableW(lpName: LPCWSTR, lpBuffer: [*c]u16, nSize: DWORD) DWORD;
+pub extern "kernel32" fn CreateFileW(
+    lpFileName: LPCWSTR,
+    dwDesiredAccess: DWORD,
+    dwShareMode: DWORD,
+    lpSecurityAttributes: ?*anyopaque,
+    dwCreationDisposition: DWORD,
+    dwFlagsAndAttributes: DWORD,
+    hTemplateFile: ?*anyopaque,
+) HANDLE;
+pub extern "kernel32" fn SetFilePointer(hFile: HANDLE, lDistanceToMove: i32, lpDistanceToMoveHigh: [*c]i32, dwMoveMethod: DWORD) DWORD;
+pub extern "kernel32" fn WriteFile(hFile: HANDLE, lpBuffer: [*c]const u8, nNumberOfBytesToWrite: DWORD, lpNumberOfBytesWritten: [*c]DWORD, lpOverlapped: ?*anyopaque) BOOL;
+
 /// Converte um texto UTF-8 (runtime) para UTF-16 em `dest`.
 pub fn utf16(dest: []u16, text: []const u8) ![]const u16 {
     const n = try std.unicode.utf8ToUtf16Le(dest, text);

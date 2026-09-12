@@ -244,6 +244,11 @@ fn wndProc(hwnd: win.HWND, msg: win.UINT, wparam: win.WPARAM, lparam: win.LPARAM
         win.WM_PAINT => {
             var ps: win.PAINTSTRUCT = .{};
             const hdc = win.BeginPaint(hwnd, &ps);
+            // Pinta o fundo sobre a região de update (InvalidateRect é chamado
+            // com bErase=0, então sem isso os textos fantasmas se acumulam)
+            const bg = win.CreateSolidBrush(gdi.col_bg);
+            _ = win.FillRect(hdc, &ps.rcPaint, bg);
+            _ = win.DeleteObject(bg);
             gdi.drawPanel(hdc, size.w, size.h, valuesFromInstance(inst), inst.gui.drag_idx);
             _ = win.EndPaint(hwnd, &ps);
             return 0;
